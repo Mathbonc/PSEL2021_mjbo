@@ -68,16 +68,44 @@ float dummyOrientation(int quad,float bx, float by, float rx, float ry){
     return desiredOrientation;
 }
 
+std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyOrientation, int quad){
+    float absDiff = abs(desiredOrientation-dummyOrientation);
+    std::pair<float,float> v;
+    float vx,vy; vx=vy=0;
+    if((absDiff <= 1.0472)){// bola está na frente
+        vx = 1.5; vy=0;
+    }else if((absDiff > 1.0472)&&(absDiff < 2.0944)){// bola está nas laterais
+        if(quad == 2 || quad == 3){//Esquerda
+            if(dummyOrientation>0){
+                vy = 1.5;
+            }else{
+                vy = -1.5;
+            }
+        }else if(quad == 1 || quad == 4){// Direita
+            if(dummyOrientation>0){
+                vy = -1.5;
+            }else{
+                vy = 1.5;
+            }
+        }
+    }else if(absDiff >= 2.0944){ //Bola atrás
+        vx = -1.5; vy=0;
+    }
+    v.first=vx;
+    v.second=vy;
+    return v;
+}
+
 void dummyVelChange(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
     SSL_DetectionBall bola = vision->getLastBallDetection();
     SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
     int quad=0;
     float desiredOrientation,vw;
 
+    //Conseguindo as informações de orientação
     quad = calculateQuadrant(bola.x(),bola.y(),roboVision.x(),roboVision.y());
     desiredOrientation = dummyOrientation(quad,bola.x(),bola.y(),roboVision.x(),roboVision.y());
 
-    //Testando vvvvv
     if(abs(desiredOrientation - roboVision.orientation())< 0.0872665){
         vw = 0;
     }else if(desiredOrientation > 0){//Bola está em cima
@@ -109,9 +137,12 @@ void dummyVelChange(Vision *vision, Actuator *actuator, bool isYellow, int playe
             }
         }
     }
-    actuator->sendCommand(isYellow,playerID,1.5,0,vw,false,4);
-    //Testando ^^^^
 
+    //Calculando velocidades
+    std::pair<float,float> v;
+    v = dummyVelCalculator(desiredOrientation,roboVision.orientation(),quad);//Fase de testes
+
+    actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);
     printf("Quad: %d | desiredOrientation: %f | dummyOrientation: %f\n", quad, desiredOrientation, roboVision.orientation());
 }
 
