@@ -77,7 +77,7 @@ void dummyVelChange(Vision *vision, Actuator *actuator, bool isYellow, int playe
     quad = calculateQuadrant(bola.x(),bola.y(),roboVision.x(),roboVision.y());
     desiredOrientation = dummyOrientation(quad,bola.x(),bola.y(),roboVision.x(),roboVision.y());
 
-    //Testando vvvv
+    //Testando vvvvv
     if(abs(desiredOrientation - roboVision.orientation())< 0.0872665){
         vw = 0;
     }else if(desiredOrientation > 0){//Bola está em cima
