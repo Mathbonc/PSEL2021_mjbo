@@ -5,6 +5,8 @@
 #include <modules/actuator/actuator.h>
 #include <modules/vision/vision.h>
 
+#define ANGULAR_V 3.5
+
 int calculateQuadrant(float bx, float by, float rx, float ry){
     int quad=0;
     if((bx>rx)&&(by>ry)){//Primeiro Quadrante
@@ -66,9 +68,9 @@ float dummyOrientation(int quad,float bx, float by, float rx, float ry){
     return desiredOrientation;
 }
 
-void dummyVelChange(Vision *vision, Actuator *actuator, int playerID){
+void dummyVelChange(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
     SSL_DetectionBall bola = vision->getLastBallDetection();
-    SSL_DetectionRobot roboVision = vision->getLastRobotDetection(true, playerID);
+    SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
     int quad=0;
     float desiredOrientation,vw;
 
@@ -76,38 +78,38 @@ void dummyVelChange(Vision *vision, Actuator *actuator, int playerID){
     desiredOrientation = dummyOrientation(quad,bola.x(),bola.y(),roboVision.x(),roboVision.y());
 
     //Testando vvvv
-    if(desiredOrientation == roboVision.orientation()){
+    if(abs(desiredOrientation - roboVision.orientation())< 0.0872665){
         vw = 0;
     }else if(desiredOrientation > 0){//Bola está em cima
         if(roboVision.orientation()>0){
             if(roboVision.orientation()>desiredOrientation){
-                vw = -0.5;
+                vw = -ANGULAR_V;
             }else{
-                vw = 0.5;
+                vw = ANGULAR_V;
             }
         }else{
             if(roboVision.orientation()<(-M_PI_2)){//Está no terceiro quad
-                vw = -0.5;
+                vw = -ANGULAR_V;
             }else{
-                vw = 0.5;
+                vw = ANGULAR_V;
             }
         }
     }else{
         if(roboVision.orientation()<0){
             if(roboVision.orientation()>desiredOrientation){
-                vw = -0.5;
+                vw = -ANGULAR_V;
             }else{
-                vw = 0.5;
+                vw = ANGULAR_V;
             }
         }else{
             if(roboVision.orientation()<M_PI_2){//Está no primeiro quad
-                vw = -0.5;
+                vw = -ANGULAR_V;
             }else{
-                vw = 0.5;
+                vw = ANGULAR_V;
             }
         }
     }
-    actuator->sendCommand(true,1,0,0,vw);
+    actuator->sendCommand(isYellow,playerID,1.5,0,vw,false,4);
     //Testando ^^^^
 
     printf("Quad: %d | desiredOrientation: %f | dummyOrientation: %f\n", quad, desiredOrientation, roboVision.orientation());
@@ -132,7 +134,8 @@ int main(int argc, char *argv[]) {
 
         vision->processNetworkDatagrams();
 
-        dummyVelChange(vision,actuator,1);
+        dummyVelChange(vision,actuator, true,1);
+        dummyVelChange(vision,actuator, false,2);
 
         //SSL_DetectionRobot roboVision = vision->getLastRobotDetection(true, 2);
         //SSL_DetectionBall bola = vision->getLastBallDetection();
