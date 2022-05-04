@@ -5,7 +5,7 @@
 #include <modules/actuator/actuator.h>
 #include <modules/vision/vision.h>
 
-#define ANGULAR_V 3.5
+#define ANGULAR_V 2.75
 
 int calculateQuadrant(float bx, float by, float rx, float ry){
     int quad=0;
@@ -33,7 +33,9 @@ float dummyOrientation(int quad,float bx, float by, float rx, float ry){
     float desiredOrientation = M_PI,alpha;
     qreal tg;
 
-    tg=(abs(bx-rx))/(abs(by-ry));
+    if(!((by-ry)==0)){
+        tg=(abs(bx-rx))/(abs(by-ry));
+    }
     alpha = qAtan(tg);// Temos o alpha em radianos
 
     switch (quad) {
@@ -73,22 +75,28 @@ std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyO
     std::pair<float,float> v;
     float vx,vy; vx=vy=0;
     if((absDiff <= 1.0472)){// bola está na frente
+        //std::cout << "Frente" << std::endl;
         vx = 1.5; vy=0;
     }else if((absDiff > 1.0472)&&(absDiff < 2.0944)){// bola está nas laterais
         if(quad == 2 || quad == 3){//Esquerda
             if(dummyOrientation>0){
+                //std::cout << "Esquerda" << std::endl;
                 vy = 1.5;
             }else{
+                //std::cout << "Direita" << std::endl;
                 vy = -1.5;
             }
         }else if(quad == 1 || quad == 4){// Direita
             if(dummyOrientation>0){
+                //std::cout << "Direita" << std::endl;
                 vy = -1.5;
             }else{
+                //std::cout << "Esquerda" << std::endl;
                 vy = 1.5;
             }
         }
     }else if(absDiff >= 2.0944){ //Bola atrás
+        //std::cout << "Tras" << std::endl;
         vx = -1.5; vy=0;
     }
     v.first=vx;
@@ -96,7 +104,7 @@ std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyO
     return v;
 }
 
-void dummyVelChange(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
+void dummyControl(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
     SSL_DetectionBall bola = vision->getLastBallDetection();
     SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
     int quad=0;
@@ -140,10 +148,10 @@ void dummyVelChange(Vision *vision, Actuator *actuator, bool isYellow, int playe
 
     //Calculando velocidades
     std::pair<float,float> v;
-    v = dummyVelCalculator(desiredOrientation,roboVision.orientation(),quad);//Fase de testes
+    v = dummyVelCalculator(desiredOrientation,roboVision.orientation(),quad);
 
-    actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);
-    printf("Quad: %d | desiredOrientation: %f | dummyOrientation: %f\n", quad, desiredOrientation, roboVision.orientation());
+    actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
+    //printf("Quad: %d | desiredOrientation: %f | dummyOrientation: %f\n", quad, desiredOrientation, roboVision.orientation());
 }
 
 int main(int argc, char *argv[]) {
@@ -160,22 +168,12 @@ int main(int argc, char *argv[]) {
         std::chrono::high_resolution_clock::time_point beforeProcess = std::chrono::high_resolution_clock::now();
 
         // Process vision and actuator commands//
-
-
-
         vision->processNetworkDatagrams();
 
-        dummyVelChange(vision,actuator, true,1);
-        dummyVelChange(vision,actuator, false,2);
-
-        //SSL_DetectionRobot roboVision = vision->getLastRobotDetection(true, 2);
-        //SSL_DetectionBall bola = vision->getLastBallDetection();
-
-        //printf("(%f, %f)\n", bola.x(),bola.y());
-
-        //actuator->sendCommand(true,2,0,0,0);
-        //actuator->sendCommand(true, playerID, vector.vx, vector.vy, 0.0,false,3.0,true);//X: Frente Y: Esquerda W:Vira esquerda
-
+        dummyControl(vision,actuator, true,1);
+        //dummyControl(vision,actuator, false,1);
+        //dummyControl(vision,actuator, true,2);
+        //dummyControl(vision,actuator, false,2);
 
 
         // TimePoint//
