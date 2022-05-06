@@ -66,11 +66,30 @@ float dummyOrientation(int quad,float bx, float by, float rx, float ry){
     return desiredOrientation;
 }
 
-void VSSS_Goal_Shot(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
+void position_to_shot(Vision *vision){
+    fira_message::Ball bola = vision->getLastBallDetection();
+    fira_message::Field gol = vision->getLastGeometryData();
+    fira_message::Robot robo = vision->getLastRobotDetection();
+
+    float desiredOrientation;
+
+    //Pegar (x,y) do gol
+    //Calcular a direção do chute
+    //A partir dessa direção, criar um cone em que o robô pode colidir durante a ida
+    //Se o robo estiver dentro desse cone, mandar coordenas para sair do cone primeiro
+    //Se estiver fora do cone, seguir para as coordenas desejadas
+
+    //A função calcula a direção de chute e as coordenadas que o robo pecisa estar para chutar.
+    //Na main, ele checa se o robô está na na posição e parte para chutar
+
+
+}
+
+void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
     fira_message::Ball bola = vision->getLastBallDetection();
     fira_message::Robot roboVision = vision->getLastRobotDetection(isYellow, playerID);
     int quad=0;
-    float desiredOrientation,vw;
+    float desiredOrientation;
 
     //Conseguindo as informações de orientação
     quad = calculateQuadrant(bola.x(),bola.y(),roboVision.x(),roboVision.y());
