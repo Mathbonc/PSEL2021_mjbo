@@ -149,15 +149,14 @@ void dummyControl(Vision *vision, Actuator *actuator, bool isYellow, int playerI
     //Calculando velocidades
     std::pair<float,float> v;
     v = dummyVelCalculator(desiredOrientation,roboVision.orientation(),quad);
-
-    actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
+    actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4,true);//X: Frente Y: Esquerda W:Vira esquerda
     //printf("Quad: %d | desiredOrientation: %f | dummyOrientation: %f\n", quad, desiredOrientation, roboVision.orientation());
 }
 
 int main(int argc, char *argv[]) {
     QCoreApplication a(argc, argv);
 
-    Vision *vision = new Vision("224.5.23.2", 10020);
+    Vision *vision = new Vision("224.0.0.1", 10002);
     Actuator *actuator = new Actuator("127.0.0.1", 20011);
 
     // Desired frequency
