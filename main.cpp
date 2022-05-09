@@ -7,9 +7,9 @@
 
 #define X_Goal_blue -0.750
 #define X_Goal_yellow 0.750
-#define DIST_SHOT 0.3
-#define VSSS_ST8_VEL 10
-#define VSSS_ANG_VEL 5
+#define DIST_SHOT 0.15
+#define VSSS_ST8_VEL 15
+#define VSSS_ANG_VEL 7.5
 
 int calculateQuadrant(float bx, float by, float rx, float ry){
     int quad=0;
@@ -74,12 +74,12 @@ float Orientation(int quad,float bx, float by, float rx, float ry){
     return desiredOrientation;
 }
 
-std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation, float bx, float by){
+std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation, float gx, float bx, float by){
     std::pair <float,float> shooting_Pos;
 
     shooting_Pos.first=shooting_Pos.second=0; //Inicializando
 
-    std::cout << "Orienação desejada: " << desiredOrientation << std::endl;
+    //std::cout << "Orienação desejada: " << desiredOrientation << std::endl;
 
     //Invertendo a orientação
     if(desiredOrientation>0){
@@ -88,7 +88,7 @@ std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation
         desiredOrientation += M_PI;
     }
 
-    std::cout << "Orienação invertida: " << desiredOrientation << std::endl;
+    //std::cout << "Orienação invertida: " << desiredOrientation << std::endl;
 
     //Checando se está em algum do eixos
     if((desiredOrientation < 0.0872665) && (desiredOrientation > -0.0872665)){ //Direita
@@ -108,12 +108,17 @@ std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation
     //Caso não esteja nos eixos, fazer o cálculo usando tg obtida
     float x,y;
 
-    float tg = tan(abs(desiredOrientation));
+    float tg=1;
 
-    y = (DIST_SHOT*sqrt(1+(tg*tg)))/(1+(tg*tg));
+    if(!((by)==0)){
+         tg=(abs(gx-bx))/(abs(by));
+    }
+
+    y = DIST_SHOT/(sqrt((tg*tg)+1));
     x = tg*y;
 
-    std::cout << x << " " << y << std::endl;
+    //std::cout << "TG obtida: " << tg << std::endl;
+    //std::cout << x << " " << y << std::endl;
 
     //Aqui, os quadrantes são "invertidos", então se quad é 3, na verdade a posição está no inverso, que seria o primeiro
     if(quad==3){ //Primeiro
@@ -145,24 +150,28 @@ std::pair<float,float> position_to_shoot(Vision *vision, bool isYellow){
     if(isYellow){
         quad = calculateQuadrant(X_Goal_blue, 0, bola.x(), bola.y());
         desiredOrientation = Orientation(quad, X_Goal_blue, 0, bola.x(), bola.y());
+        shooting_Pos = calculateShooting_Pos(quad, desiredOrientation, X_Goal_blue,bola.x(), bola.y());
     }else{
         quad = calculateQuadrant(X_Goal_yellow, 0, bola.x(), bola.y());
         desiredOrientation = Orientation(quad, X_Goal_yellow, 0, bola.x(), bola.y());
+        shooting_Pos = calculateShooting_Pos(quad, desiredOrientation, X_Goal_yellow,bola.x(), bola.y());
     }
-
-    shooting_Pos = calculateShooting_Pos(quad, desiredOrientation, bola.x(), bola.y()); 
 
     return shooting_Pos;
 }
 
-std::pair<float,float> calculate_VSSS_Vel(float desiredOrientation, float dummyOrientation){
+std::pair<float,float> calculate_VSSS_Vel(float desiredOrientation, float dummyOrientation, bool rotate_Only){
     std::pair<float,float> v;//(Left,Right)
     //vw - vira pra direita
     //LW + | RW - : vira pra direita
     v.first=v.second=0;
 
     if(abs(desiredOrientation - dummyOrientation)<= 0.0872665){
-            v.first=v.second=VSSS_ST8_VEL;
+        if(rotate_Only){
+           v.first=v.second=0;
+        }else{
+           v.first=v.second=VSSS_ST8_VEL;
+        }
     }else if(desiredOrientation > 0){//Bola está em cima
         if(dummyOrientation>0){
             if(dummyOrientation>desiredOrientation){
@@ -200,15 +209,18 @@ std::pair<float,float> calculate_VSSS_Vel(float desiredOrientation, float dummyO
             }
         }
     }
-    if(abs(desiredOrientation - dummyOrientation)>0.0872665 && abs(desiredOrientation - dummyOrientation)<0.261799){
-        v.first /= 3;
-        v.second /= 3;
+    if(abs(desiredOrientation - dummyOrientation)>0.0872665 && abs(desiredOrientation - dummyOrientation)<=0.349066){
+        v.first /= 6;
+        v.second /= 6;
     }
 
     return v;
 }
 
-void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
+void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int playerID, bool *isShoot){
+    if(*isShoot){
+        return;
+    }
     fira_message::Ball bola = vision->getLastBallDetection();
     fira_message::Robot roboVision = vision->getLastRobotDetection(isYellow, playerID);
 
@@ -225,17 +237,51 @@ void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int pla
     quad = calculateQuadrant(shooting_Pos.first,shooting_Pos.second,roboVision.x(),roboVision.y());
     desiredOrientation = Orientation(quad,shooting_Pos.first,shooting_Pos.second,roboVision.x(),roboVision.y());
 
-    v = calculate_VSSS_Vel(desiredOrientation,roboVision.orientation());
-
-
     if((roboVision.x()<(shooting_Pos.first+0.01))&&(roboVision.x()>(shooting_Pos.first-0.01))){//Se tiver dentro da área aceitável
         if((roboVision.y()<(shooting_Pos.second+0.01))&&(roboVision.y()>(shooting_Pos.second-0.01))){
-            v.first=v.second=0;
+            if(isYellow){
+                quad = calculateQuadrant(X_Goal_blue,0,roboVision.x(),roboVision.y());
+                desiredOrientation = Orientation(quad,X_Goal_blue,0,roboVision.x(),roboVision.y());
+            }else{
+                quad = calculateQuadrant(X_Goal_yellow,0,roboVision.x(),roboVision.y());
+                desiredOrientation = Orientation(X_Goal_yellow,0,shooting_Pos.second,roboVision.x(),roboVision.y());
+            }
+
+            if(abs(desiredOrientation - roboVision.orientation())<= 0.0872665){
+                *(isShoot)=true;
+                actuator->sendCommand(isYellow,playerID,0,0);
+            }else{
+                v = calculate_VSSS_Vel(desiredOrientation,roboVision.orientation(),true);
+                actuator->sendCommand(isYellow,playerID,v.first,v.second);
+            }
         }
+    }else{
+        v = calculate_VSSS_Vel(desiredOrientation,roboVision.orientation(),false);
+        actuator->sendCommand(isYellow,playerID,v.first,v.second);//LW + | RW - : vira pra direita
     }
 
-    actuator->sendCommand(isYellow,playerID,v.first,v.second);//LW + | RW - : vira pra direita
+}
 
+void just_DO_IT(Vision *vision, Actuator *Actuator, bool isYellow, int playerID, bool *isShoot){
+    fira_message::Ball bola = vision->getLastBallDetection();
+    fira_message::Robot roboVision = vision->getLastRobotDetection(isYellow, playerID);
+
+    float b_vx,b_vy;
+    b_vx = abs(bola.vx());
+    b_vy = abs(bola.vy());
+
+    //A bola terá que ter mais que 0.05 de velocidade para ser considerada chutada.
+    b_vx = abs(b_vx-0.03);
+    b_vy = abs(b_vy-0.03);
+
+    std::cout << b_vx <<" And " << b_vy << std::endl;
+    if(b_vx > 0.05 || b_vy > 0.05){
+        std::cout << "A QU SACO" << std::endl;
+        *(isShoot)=false;
+    }else{
+        std::cout << "A QU SACO2" << std::endl;
+        Actuator->sendCommand(isYellow,playerID,VSSS_ST8_VEL*2,VSSS_ST8_VEL*2);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -246,6 +292,7 @@ int main(int argc, char *argv[]) {
 
     // Desired frequency
     int desiredFrequency = 60;
+    bool isShoot = false;
 
     while(true) {
         // TimePoint
@@ -254,7 +301,11 @@ int main(int argc, char *argv[]) {
         // Process vision and actuator commands
         vision->processNetworkDatagrams();
 
-        VSSS_positioning(vision,actuator,true,0);
+        VSSS_positioning(vision,actuator,true,0, &isShoot);
+
+        if(isShoot){
+            just_DO_IT(vision,actuator,true,0, &isShoot);
+        }
 
         // TimePoint
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
