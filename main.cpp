@@ -5,9 +5,9 @@
 #include <modules/actuator/actuator.h>
 #include <modules/vision/vision.h>
 
-#define X_Goal_blue 0.750
-#define X_Goal_yellow -0.750
-#define DIST_SHOT 0.1
+#define X_Goal_blue -0.750
+#define X_Goal_yellow 0.750
+#define DIST_SHOT 0.3
 #define VSSS_ST8_VEL 10
 #define VSSS_ANG_VEL 5
 
@@ -35,9 +35,11 @@ int calculateQuadrant(float bx, float by, float rx, float ry){
 
 float Orientation(int quad,float bx, float by, float rx, float ry){
     float desiredOrientation = M_PI,alpha;
-    qreal tg;
+    qreal tg=0;
 
-    tg=(abs(bx-rx))/(abs(by-ry));
+    if(!((by-ry)==0)){
+           tg=(abs(bx-rx))/(abs(by-ry));
+    }
     alpha = qAtan(tg);// Temos o alpha em radianos
 
     switch (quad) {
@@ -77,6 +79,8 @@ std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation
 
     shooting_Pos.first=shooting_Pos.second=0; //Inicializando
 
+    std::cout << "Orienação desejada: " << desiredOrientation << std::endl;
+
     //Invertendo a orientação
     if(desiredOrientation>0){
         desiredOrientation -= M_PI;
@@ -84,12 +88,14 @@ std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation
         desiredOrientation += M_PI;
     }
 
+    std::cout << "Orienação invertida: " << desiredOrientation << std::endl;
+
     //Checando se está em algum do eixos
-    if((desiredOrientation < 0.0872665) && (desiredOrientation < -0.0872665)){ //Direita
-        shooting_Pos = std::make_pair(bx-0.1,by);
+    if((desiredOrientation < 0.0872665) && (desiredOrientation > -0.0872665)){ //Direita
+        shooting_Pos = std::make_pair(bx+0.1,by);
         return shooting_Pos;
     }else if((desiredOrientation < -M_PI + 0.0872665) && (desiredOrientation > M_PI - 0.0872665)){ //Esquerda
-        shooting_Pos = std::make_pair(bx+0.1,by);
+        shooting_Pos = std::make_pair(bx-0.1,by);
         return shooting_Pos;
     }else if((desiredOrientation < M_PI_2 + 0.0872665) && (desiredOrientation > M_PI_2 - 0.0872665)){ //Cima
         shooting_Pos = std::make_pair(bx,by+0.1);
@@ -102,12 +108,13 @@ std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation
     //Caso não esteja nos eixos, fazer o cálculo usando tg obtida
     float x,y;
 
-    float tg = tan(desiredOrientation);
+    float tg = tan(abs(desiredOrientation));
 
-    y = (DIST_SHOT*sqrt(1+tg*tg))/(1+tg*tg);
+    y = (DIST_SHOT*sqrt(1+(tg*tg)))/(1+(tg*tg));
     x = tg*y;
 
     std::cout << x << " " << y << std::endl;
+
     //Aqui, os quadrantes são "invertidos", então se quad é 3, na verdade a posição está no inverso, que seria o primeiro
     if(quad==3){ //Primeiro
         shooting_Pos.first = bx + x;
@@ -143,10 +150,8 @@ std::pair<float,float> position_to_shoot(Vision *vision, bool isYellow){
         desiredOrientation = Orientation(quad, X_Goal_yellow, 0, bola.x(), bola.y());
     }
 
-    shooting_Pos = calculateShooting_Pos(quad, desiredOrientation, bola.x(), bola.y());
+    shooting_Pos = calculateShooting_Pos(quad, desiredOrientation, bola.x(), bola.y()); 
 
-    //printf("(%f,%f)\n", shooting_Pos.first,shooting_Pos.second);
-    //printf("bola: (%f,%f)\n", bola.x(),bola.y());
     return shooting_Pos;
 }
 
@@ -214,18 +219,23 @@ void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int pla
 
     shooting_Pos = position_to_shoot(vision,true);
 
+    //printf("Posição esperada: (%f,%f)\n", shooting_Pos.first, shooting_Pos.second);
+    //printf("Posição real: (%f,%f)\n", roboVision.x(), roboVision.y());
+
     quad = calculateQuadrant(shooting_Pos.first,shooting_Pos.second,roboVision.x(),roboVision.y());
     desiredOrientation = Orientation(quad,shooting_Pos.first,shooting_Pos.second,roboVision.x(),roboVision.y());
 
     v = calculate_VSSS_Vel(desiredOrientation,roboVision.orientation());
 
+
     if((roboVision.x()<(shooting_Pos.first+0.01))&&(roboVision.x()>(shooting_Pos.first-0.01))){//Se tiver dentro da área aceitável
         if((roboVision.y()<(shooting_Pos.second+0.01))&&(roboVision.y()>(shooting_Pos.second-0.01))){
             v.first=v.second=0;
         }
-    }else{
-       actuator->sendCommand(isYellow,playerID,v.first,v.second);//LW + | RW - : vira pra direita
     }
+
+    actuator->sendCommand(isYellow,playerID,v.first,v.second);//LW + | RW - : vira pra direita
+
 }
 
 int main(int argc, char *argv[]) {
