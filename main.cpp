@@ -1,9 +1,15 @@
-#include <QCoreApplication>
+ #include <QCoreApplication>
 #include <QtMath>
 #include <chrono>
 #include <thread>
 #include <modules/actuator/actuator.h>
 #include <modules/vision/vision.h>
+
+#define X_Goal_blue 0.750
+#define X_Goal_yellow -0.750
+#define DIST_SHOT 0.1
+#define VSSS_ST8_VEL 10
+#define VSSS_ANG_VEL 5
 
 int calculateQuadrant(float bx, float by, float rx, float ry){
     int quad=0;
@@ -27,7 +33,7 @@ int calculateQuadrant(float bx, float by, float rx, float ry){
     return quad;
 }
 
-float dummyOrientation(int quad,float bx, float by, float rx, float ry){
+float Orientation(int quad,float bx, float by, float rx, float ry){
     float desiredOrientation = M_PI,alpha;
     qreal tg;
 
@@ -66,38 +72,160 @@ float dummyOrientation(int quad,float bx, float by, float rx, float ry){
     return desiredOrientation;
 }
 
-void position_to_shot(Vision *vision){
+std::pair <float,float> calculateShooting_Pos(int quad, float desiredOrientation, float bx, float by){
+    std::pair <float,float> shooting_Pos;
+
+    shooting_Pos.first=shooting_Pos.second=0; //Inicializando
+
+    //Invertendo a orientação
+    if(desiredOrientation>0){
+        desiredOrientation -= M_PI;
+    }else{
+        desiredOrientation += M_PI;
+    }
+
+    //Checando se está em algum do eixos
+    if((desiredOrientation < 0.0872665) && (desiredOrientation < -0.0872665)){ //Direita
+        shooting_Pos = std::make_pair(bx-0.1,by);
+        return shooting_Pos;
+    }else if((desiredOrientation < -M_PI + 0.0872665) && (desiredOrientation > M_PI - 0.0872665)){ //Esquerda
+        shooting_Pos = std::make_pair(bx+0.1,by);
+        return shooting_Pos;
+    }else if((desiredOrientation < M_PI_2 + 0.0872665) && (desiredOrientation > M_PI_2 - 0.0872665)){ //Cima
+        shooting_Pos = std::make_pair(bx,by+0.1);
+        return shooting_Pos;
+    }else if((desiredOrientation < -M_PI_2 + 0.0872665) && (desiredOrientation > -M_PI_2 - 0.0872665)){ //Baixo
+        shooting_Pos = std::make_pair(bx,by-0.1);
+        return shooting_Pos;
+    }
+
+    //Caso não esteja nos eixos, fazer o cálculo usando tg obtida
+    float x,y;
+
+    float tg = tan(desiredOrientation);
+
+    y = (DIST_SHOT*sqrt(1+tg*tg))/(1+tg*tg);
+    x = tg*y;
+
+    std::cout << x << " " << y << std::endl;
+    //Aqui, os quadrantes são "invertidos", então se quad é 3, na verdade a posição está no inverso, que seria o primeiro
+    if(quad==3){ //Primeiro
+        shooting_Pos.first = bx + x;
+        shooting_Pos.second = by + y;
+    }else if(quad==4){ //Segundo
+        shooting_Pos.first = bx - x;
+        shooting_Pos.second = by + y;
+    }else if(quad==1){ //Terceiro
+        shooting_Pos.first = bx - x;
+        shooting_Pos.second = by - y;
+    }else if (quad==2){ //Quarto
+        shooting_Pos.first = bx + x;
+        shooting_Pos.second = by - y;
+    }
+
+    return shooting_Pos;
+}
+
+std::pair<float,float> position_to_shoot(Vision *vision, bool isYellow){
     fira_message::Ball bola = vision->getLastBallDetection();
     fira_message::Field gol = vision->getLastGeometryData();
-    fira_message::Robot robo = vision->getLastRobotDetection();
+    //fira_message::Robot robo = vision->getLastRobotDetection();
 
+    int quad=0;
     float desiredOrientation;
+    std::pair <float,float> shooting_Pos;
 
-    //Pegar (x,y) do gol
-    //Calcular a direção do chute
-    //A partir dessa direção, criar um cone em que o robô pode colidir durante a ida
-    //Se o robo estiver dentro desse cone, mandar coordenas para sair do cone primeiro
-    //Se estiver fora do cone, seguir para as coordenas desejadas
+    if(isYellow){
+        quad = calculateQuadrant(X_Goal_blue, 0, bola.x(), bola.y());
+        desiredOrientation = Orientation(quad, X_Goal_blue, 0, bola.x(), bola.y());
+    }else{
+        quad = calculateQuadrant(X_Goal_yellow, 0, bola.x(), bola.y());
+        desiredOrientation = Orientation(quad, X_Goal_yellow, 0, bola.x(), bola.y());
+    }
 
-    //A função calcula a direção de chute e as coordenadas que o robo pecisa estar para chutar.
-    //Na main, ele checa se o robô está na na posição e parte para chutar
+    shooting_Pos = calculateShooting_Pos(quad, desiredOrientation, bola.x(), bola.y());
 
+    //printf("(%f,%f)\n", shooting_Pos.first,shooting_Pos.second);
+    //printf("bola: (%f,%f)\n", bola.x(),bola.y());
+    return shooting_Pos;
+}
 
+std::pair<float,float> calculate_VSSS_Vel(float desiredOrientation, float dummyOrientation){
+    std::pair<float,float> v;//(Left,Right)
+    //vw - vira pra direita
+    //LW + | RW - : vira pra direita
+    v.first=v.second=0;
+
+    if(abs(desiredOrientation - dummyOrientation)<= 0.0872665){
+            v.first=v.second=VSSS_ST8_VEL;
+    }else if(desiredOrientation > 0){//Bola está em cima
+        if(dummyOrientation>0){
+            if(dummyOrientation>desiredOrientation){
+                v.first = VSSS_ANG_VEL;
+                v.second = -VSSS_ANG_VEL;
+            }else{
+                v.first = -VSSS_ANG_VEL;
+                v.second = VSSS_ANG_VEL;
+            }
+        }else{
+            if(dummyOrientation<(-M_PI_2)){//Está no terceiro quad
+                v.first = VSSS_ANG_VEL;
+                v.second = -VSSS_ANG_VEL;
+            }else{
+                v.first = -VSSS_ANG_VEL;
+                v.second = VSSS_ANG_VEL;
+            }
+        }
+    }else{
+        if(dummyOrientation<0){
+            if(dummyOrientation>desiredOrientation){
+                v.first = VSSS_ANG_VEL;
+                v.second = -VSSS_ANG_VEL;
+            }else{
+                v.first = -VSSS_ANG_VEL;
+                v.second = VSSS_ANG_VEL;
+            }
+        }else{
+            if(dummyOrientation<M_PI_2){//Está no primeiro quad
+                v.first = VSSS_ANG_VEL;
+                v.second = -VSSS_ANG_VEL;
+            }else{
+                v.first = -VSSS_ANG_VEL;
+                v.second = VSSS_ANG_VEL;
+            }
+        }
+    }
+    if(abs(desiredOrientation - dummyOrientation)>0.0872665 && abs(desiredOrientation - dummyOrientation)<0.261799){
+        v.first /= 3;
+        v.second /= 3;
+    }
+
+    return v;
 }
 
 void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
     fira_message::Ball bola = vision->getLastBallDetection();
     fira_message::Robot roboVision = vision->getLastRobotDetection(isYellow, playerID);
-    int quad=0;
+
+    std::pair<float,float> shooting_Pos;
+    std::pair<float,float> v;
     float desiredOrientation;
+    int quad;
 
-    //Conseguindo as informações de orientação
-    quad = calculateQuadrant(bola.x(),bola.y(),roboVision.x(),roboVision.y());
-    desiredOrientation = dummyOrientation(quad,bola.x(),bola.y(),roboVision.x(),roboVision.y());
+    shooting_Pos = position_to_shoot(vision,true);
 
+    quad = calculateQuadrant(shooting_Pos.first,shooting_Pos.second,roboVision.x(),roboVision.y());
+    desiredOrientation = Orientation(quad,shooting_Pos.first,shooting_Pos.second,roboVision.x(),roboVision.y());
 
-    std::cout << quad << " and " << desiredOrientation << std::endl;
-    actuator->sendCommand(isYellow,playerID,0,0);//LW + | RW - : vira pra direita
+    v = calculate_VSSS_Vel(desiredOrientation,roboVision.orientation());
+
+    if((roboVision.x()<(shooting_Pos.first+0.01))&&(roboVision.x()>(shooting_Pos.first-0.01))){//Se tiver dentro da área aceitável
+        if((roboVision.y()<(shooting_Pos.second+0.01))&&(roboVision.y()>(shooting_Pos.second-0.01))){
+            v.first=v.second=0;
+        }
+    }else{
+       actuator->sendCommand(isYellow,playerID,v.first,v.second);//LW + | RW - : vira pra direita
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -116,10 +244,7 @@ int main(int argc, char *argv[]) {
         // Process vision and actuator commands
         vision->processNetworkDatagrams();
 
-        fira_message::Ball Bola = vision->getLastBallDetection();
-        fira_message::Robot Robo = vision->getLastRobotDetection(true, 1);
-
-        VSSS_Goal_Shot(vision,actuator,true,1);
+        VSSS_positioning(vision,actuator,true,0);
 
         // TimePoint
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
