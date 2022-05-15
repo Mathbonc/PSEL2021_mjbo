@@ -6,6 +6,7 @@
 #include <modules/vision/vision.h>
 
 #define ANGULAR_V 2.75
+#define TOLERABLE_DISTANCE 7.5
 
 int calculateQuadrant(float bx, float by, float rx, float ry){
     int quad=0;
@@ -104,41 +105,55 @@ std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyO
     return v;
 }
 
-void dummyControl(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
-    SSL_DetectionBall bola = vision->getLastBallDetection();
-    SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
-    int quad=0;
-    float desiredOrientation,vw;
+float is_Near(float x_goal, float y_goal, float x, float y, bool getDistance = false, float tolerance = 7.5){
+    float diff_x, diff_y;
 
-    //Conseguindo as informações de orientação
-    quad = calculateQuadrant(bola.x(),bola.y(),roboVision.x(),roboVision.y());
-    desiredOrientation = dummyOrientation(quad,bola.x(),bola.y(),roboVision.x(),roboVision.y());
+    diff_x = abs(x_goal-x);
+    diff_y = abs(y_goal-y);
 
-    if(abs(desiredOrientation - roboVision.orientation())< 0.0872665){
+    if(getDistance){
+        x *= x;
+        y *= y;
+        float hip = sqrt(x+y);
+
+        return hip;
+    }
+
+    if(diff_x < tolerance && diff_y < tolerance){
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+float dummyAngularVel(float desiredOrientation, float dummy_orientation){
+    float vw;
+
+    if(abs(desiredOrientation - dummy_orientation)< 0.0872665){
         vw = 0;
     }else if(desiredOrientation > 0){//Bola está em cima
-        if(roboVision.orientation()>0){
-            if(roboVision.orientation()>desiredOrientation){
+        if(dummy_orientation>0){
+            if(dummy_orientation>desiredOrientation){
                 vw = -ANGULAR_V;
             }else{
                 vw = ANGULAR_V;
             }
         }else{
-            if(roboVision.orientation()<(-M_PI_2)){//Está no terceiro quad
+            if(dummy_orientation<(-M_PI_2)){//Está no terceiro quad
                 vw = -ANGULAR_V;
             }else{
                 vw = ANGULAR_V;
             }
         }
     }else{
-        if(roboVision.orientation()<0){
-            if(roboVision.orientation()>desiredOrientation){
+        if(dummy_orientation<0){
+            if(dummy_orientation>desiredOrientation){
                 vw = -ANGULAR_V;
             }else{
                 vw = ANGULAR_V;
             }
         }else{
-            if(roboVision.orientation()<M_PI_2){//Está no primeiro quad
+            if(dummy_orientation<M_PI_2){//Está no primeiro quad
                 vw = -ANGULAR_V;
             }else{
                 vw = ANGULAR_V;
@@ -146,11 +161,65 @@ void dummyControl(Vision *vision, Actuator *actuator, bool isYellow, int playerI
         }
     }
 
+    return vw;
+}
+
+void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, float y_Position,bool isYellow, int playerID, float tolerance){
+    SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
+
+    int quad=0;
+    float desiredOrientation;
+
+    //Conseguindo as informações de orientação
+    quad = calculateQuadrant(x_Position,y_Position,roboVision.x(),roboVision.y());
+    desiredOrientation = dummyOrientation(quad,x_Position,y_Position,roboVision.x(),roboVision.y());
+
+    //Velocidade angular
+    float vw;
+    vw = dummyAngularVel(desiredOrientation, roboVision.orientation());
+
     //Calculando velocidades
     std::pair<float,float> v;
     v = dummyVelCalculator(desiredOrientation,roboVision.orientation(),quad);
-    actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4,true);//X: Frente Y: Esquerda W:Vira esquerda
-    //printf("Quad: %d | desiredOrientation: %f | dummyOrientation: %f\n", quad, desiredOrientation, roboVision.orientation());
+
+    //Enviando
+    if(is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),false,tolerance)){
+        actuator->sendCommand(isYellow,playerID,0,0,0,false,4);
+    }else{
+        actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
+    }
+}
+
+void dummyFormation(Vision *vision, Actuator *actuator, bool isYellow, int playerID1, int playerID2, int playerID3){
+    SSL_DetectionBall bola = vision->getLastBallDetection();
+    SSL_DetectionRobot ssl1 = vision->getLastRobotDetection(isYellow,playerID1);
+    SSL_DetectionRobot ssl2 = vision->getLastRobotDetection(isYellow,playerID2);
+    SSL_DetectionRobot ssl3 = vision->getLastRobotDetection(isYellow,playerID3);
+    int robo1,robo2,robo3; //Pega a bola || Passa a bola || Faz o gol
+
+    //Checando qual robo está mais próximo da bola
+    if(is_Near(bola.x(),bola.y(),ssl1.x(),ssl1.y(),true) < is_Near(bola.x(),bola.y(),ssl2.x(),ssl2.y(),true)){ // SSL1 nearest
+        if(is_Near(bola.x(),bola.y(),ssl1.x(),ssl1.y(),true) < is_Near(bola.x(),bola.y(),ssl3.x(),ssl3.y(),true)){
+            robo1 = playerID1;
+            robo2 = playerID2;
+            robo3 = playerID3;
+        }else{
+            robo1 = playerID3;
+            robo2 = playerID2;
+            robo3 = playerID1;
+        }
+    }else{ //SSL2 nearest
+        if(is_Near(bola.x(),bola.y(),ssl2.x(),ssl2.y(),true) < is_Near(bola.x(),bola.y(),ssl3.x(),ssl3.y(),true)){
+            robo1 = playerID2;
+            robo2 = playerID3;
+            robo3 = playerID1;
+        }else{
+            robo1 = playerID3;
+            robo2 = playerID1;
+            robo3 = playerID2;
+        }
+    }
+
 }
 
 int main(int argc, char *argv[]) {
@@ -169,11 +238,7 @@ int main(int argc, char *argv[]) {
         // Process vision and actuator commands//
         vision->processNetworkDatagrams();
 
-        dummyControl(vision,actuator, true,1);
-        //dummyControl(vision,actuator, false,1);
-        //dummyControl(vision,actuator, true,2);
-        //dummyControl(vision,actuator, false,2);
-
+        dummy_Positioning(vision,actuator,1000,1000,true,1,100);
 
         // TimePoint//
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
