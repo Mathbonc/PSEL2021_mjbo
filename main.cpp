@@ -112,9 +112,9 @@ float is_Near(float x_goal, float y_goal, float x, float y, bool getDistance = f
     diff_y = abs(y_goal-y);
 
     if(getDistance){
-        x *= x;
-        y *= y;
-        float hip = sqrt(x+y);
+        diff_x *= diff_x;
+        diff_y *= diff_y;
+        float hip = sqrt(diff_x+diff_y);
 
         return hip;
     }
@@ -190,12 +190,14 @@ void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, flo
     }
 }
 
-void dummyFormation(Vision *vision, Actuator *actuator, bool isYellow, int playerID1, int playerID2, int playerID3){
+std::pair<int,std::pair<int,int>> get_Dummy_role(Vision *vision, bool isYellow, int playerID1, int playerID2, int playerID3){
     SSL_DetectionBall bola = vision->getLastBallDetection();
     SSL_DetectionRobot ssl1 = vision->getLastRobotDetection(isYellow,playerID1);
     SSL_DetectionRobot ssl2 = vision->getLastRobotDetection(isYellow,playerID2);
     SSL_DetectionRobot ssl3 = vision->getLastRobotDetection(isYellow,playerID3);
+
     int robo1,robo2,robo3; //Pega a bola || Passa a bola || Faz o gol
+    std::pair<int,std::pair<int,int>> RoboIDs;
 
     //Checando qual robo está mais próximo da bola
     if(is_Near(bola.x(),bola.y(),ssl1.x(),ssl1.y(),true) < is_Near(bola.x(),bola.y(),ssl2.x(),ssl2.y(),true)){ // SSL1 nearest
@@ -220,6 +222,11 @@ void dummyFormation(Vision *vision, Actuator *actuator, bool isYellow, int playe
         }
     }
 
+    RoboIDs.first = robo1;
+    RoboIDs.second.first = robo2;
+    RoboIDs.second.second = robo3;
+
+    return RoboIDs;
 }
 
 int main(int argc, char *argv[]) {
@@ -230,6 +237,9 @@ int main(int argc, char *argv[]) {
 
     // Desired frequency
     int desiredFrequency = 60;
+    int role = 0;
+    int r1,r2,r3;
+    std::pair<int,std::pair<int,int>> roboIDs;
 
     while(true) {
         // TimePoint
@@ -238,7 +248,20 @@ int main(int argc, char *argv[]) {
         // Process vision and actuator commands//
         vision->processNetworkDatagrams();
 
-        dummy_Positioning(vision,actuator,1000,1000,true,1,100);
+        SSL_DetectionBall bola = vision->getLastBallDetection();
+        //std::cout << "animal" << std::endl;
+
+        if(role != 2){
+            //printf("A\n");
+            roboIDs = get_Dummy_role(vision,true,1,2,3);
+            r1 = roboIDs.first;
+            r2 = roboIDs.second.first;
+            r3 = roboIDs.second.second;
+            //printf("%d %d %d\n", r1,r2,r3);
+            role++;
+        }
+
+
 
         // TimePoint//
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
