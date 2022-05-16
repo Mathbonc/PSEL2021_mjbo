@@ -5,8 +5,11 @@
 #include <modules/actuator/actuator.h>
 #include <modules/vision/vision.h>
 
-#define ANGULAR_V 2.75
+#define ANGULAR_V 6
 #define TOLERABLE_DISTANCE 7.5
+#define DIST_SHOT 750
+#define X_R2_POSITION -1500
+#define y_R2_POSITION 0
 
 int calculateQuadrant(float bx, float by, float rx, float ry){
     int quad=0;
@@ -30,9 +33,11 @@ int calculateQuadrant(float bx, float by, float rx, float ry){
     return quad;
 }
 
-float dummyOrientation(int quad,float bx, float by, float rx, float ry){
+float dummyOrientation(float bx, float by, float rx, float ry){
     float desiredOrientation = M_PI,alpha;
     qreal tg;
+
+    int quad = calculateQuadrant(bx,by,rx,ry);
 
     if(!((by-ry)==0)){
         tg=(abs(bx-rx))/(abs(by-ry));
@@ -71,6 +76,91 @@ float dummyOrientation(int quad,float bx, float by, float rx, float ry){
     return desiredOrientation;
 }
 
+float is_Near(float x_goal, float y_goal, float x, float y, bool getDistance = false, float tolerance = 7.5){
+    float diff_x, diff_y;
+
+    diff_x = abs(x_goal-x);
+    diff_y = abs(y_goal-y);
+
+    if(getDistance){
+        diff_x *= diff_x;
+        diff_y *= diff_y;
+        float hip = sqrt(diff_x+diff_y);
+
+        return hip;
+    }
+
+    if(diff_x < tolerance && diff_y < tolerance){
+        return 1;
+    }else{
+        return 0;
+    }
+}
+
+std::pair<float,float> shooting_Position(float bx, float by, float rx, float ry){
+    std::pair<float,float> shooting_Pos;
+    shooting_Pos.first=shooting_Pos.second=0;
+
+    //sx = Sender.x()
+    //sy = Sender.y()
+    //rx = Receiver.x()
+    //ry = Receiver.y()
+
+    int quad = calculateQuadrant(rx, ry, bx, by);
+    float desiredOrientation = dummyOrientation(bx, by, rx, ry);
+
+    //invertendo
+    if(desiredOrientation>0){
+        desiredOrientation -= M_PI;
+    }else{
+        desiredOrientation += M_PI;
+    }
+
+
+    //Checando se está em algum dos eixos
+    if((desiredOrientation < 0.0872665) && (desiredOrientation > -0.0872665)){ //Direita
+        shooting_Pos = std::make_pair(bx+0.1,by);
+        return shooting_Pos;
+    }else if((desiredOrientation < -M_PI + 0.0872665) && (desiredOrientation > M_PI - 0.0872665)){ //Esquerda
+        shooting_Pos = std::make_pair(bx-0.1,by);
+        return shooting_Pos;
+    }else if((desiredOrientation < M_PI_2 + 0.0872665) && (desiredOrientation > M_PI_2 - 0.0872665)){ //Cima
+        shooting_Pos = std::make_pair(bx,by+0.1);
+        return shooting_Pos;
+    }else if((desiredOrientation < -M_PI_2 + 0.0872665) && (desiredOrientation > -M_PI_2 - 0.0872665)){ //Baixo
+        shooting_Pos = std::make_pair(bx,by-0.1);
+        return shooting_Pos;
+    }
+
+    //Posição fora dos eixos
+    float x,y;
+
+    float tg=1;
+
+    if(!((by)==0)){
+         tg=(abs(rx-bx))/(abs(ry-by));
+    }
+
+    y = DIST_SHOT/(sqrt((tg*tg)+1));
+    x = tg*y;
+
+    if(quad==3){ //Primeiro
+        shooting_Pos.first = bx + x;
+        shooting_Pos.second = by + y;
+    }else if(quad==4){ //Segundo
+        shooting_Pos.first = bx - x;
+        shooting_Pos.second = by + y;
+    }else if(quad==1){ //Terceiro
+        shooting_Pos.first = bx - x;
+        shooting_Pos.second = by - y;
+    }else if (quad==2){ //Quarto
+        shooting_Pos.first = bx + x;
+        shooting_Pos.second = by - y;
+    }
+
+    return shooting_Pos;
+}
+
 std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyOrientation, int quad){
     float absDiff = abs(desiredOrientation-dummyOrientation);
     std::pair<float,float> v;
@@ -103,27 +193,6 @@ std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyO
     v.first=vx;
     v.second=vy;
     return v;
-}
-
-float is_Near(float x_goal, float y_goal, float x, float y, bool getDistance = false, float tolerance = 7.5){
-    float diff_x, diff_y;
-
-    diff_x = abs(x_goal-x);
-    diff_y = abs(y_goal-y);
-
-    if(getDistance){
-        diff_x *= diff_x;
-        diff_y *= diff_y;
-        float hip = sqrt(diff_x+diff_y);
-
-        return hip;
-    }
-
-    if(diff_x < tolerance && diff_y < tolerance){
-        return 1;
-    }else{
-        return 0;
-    }
 }
 
 float dummyAngularVel(float desiredOrientation, float dummy_orientation){
@@ -161,33 +230,11 @@ float dummyAngularVel(float desiredOrientation, float dummy_orientation){
         }
     }
 
-    return vw;
-}
-
-void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, float y_Position,bool isYellow, int playerID, float tolerance){
-    SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
-
-    int quad=0;
-    float desiredOrientation;
-
-    //Conseguindo as informações de orientação
-    quad = calculateQuadrant(x_Position,y_Position,roboVision.x(),roboVision.y());
-    desiredOrientation = dummyOrientation(quad,x_Position,y_Position,roboVision.x(),roboVision.y());
-
-    //Velocidade angular
-    float vw;
-    vw = dummyAngularVel(desiredOrientation, roboVision.orientation());
-
-    //Calculando velocidades
-    std::pair<float,float> v;
-    v = dummyVelCalculator(desiredOrientation,roboVision.orientation(),quad);
-
-    //Enviando
-    if(is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),false,tolerance)){
-        actuator->sendCommand(isYellow,playerID,0,0,0,false,4);
-    }else{
-        actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
+    if(abs(desiredOrientation - dummy_orientation)>=0.0872665 && abs(desiredOrientation - dummy_orientation)<=0.349066){
+            vw /= 6;
     }
+
+    return vw;
 }
 
 std::pair<int,std::pair<int,int>> get_Dummy_role(Vision *vision, bool isYellow, int playerID1, int playerID2, int playerID3){
@@ -229,16 +276,81 @@ std::pair<int,std::pair<int,int>> get_Dummy_role(Vision *vision, bool isYellow, 
     return RoboIDs;
 }
 
+void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, float y_Position,bool isYellow, int playerID, float tolerance){
+    SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
+    float desiredOrientation;
+
+    //Conseguindo as informações de orientação
+    int quad = calculateQuadrant(x_Position,y_Position,roboVision.x(),roboVision.y());
+    desiredOrientation = dummyOrientation(x_Position,y_Position,roboVision.x(),roboVision.y());
+
+    //Velocidade angular
+    float vw;
+    vw = dummyAngularVel(desiredOrientation, roboVision.orientation());
+
+    //Calculando velocidades
+    std::pair<float,float> v;
+    v = dummyVelCalculator(desiredOrientation,roboVision.orientation(),quad);
+
+    //Enviando
+    if(is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),false,tolerance)){
+        actuator->sendCommand(isYellow,playerID,0,0,0,false,4);
+    }else{
+        if(is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),true)>tolerance*2){
+            actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
+        }else{
+            actuator->sendCommand(isYellow,playerID,v.first/3,v.second/3,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
+        }
+    }
+}
+
+void pass_Ball (Vision *vision, Actuator *actuator, bool isYellow, int senderID, int receiverID, bool *r1_pass, bool *r1_r2_pass){
+    if(*r1_r2_pass){
+        actuator->sendCommand(isYellow,senderID,0,0,0);
+        return;
+    }
+    SSL_DetectionBall bola = vision->getLastBallDetection();
+    SSL_DetectionRobot sender = vision->getLastRobotDetection(isYellow,senderID);
+    SSL_DetectionRobot receiver = vision->getLastRobotDetection(isYellow, receiverID);
+
+    std::pair<float,float> ShootPos = shooting_Position(bola.x(),bola.y(),X_R2_POSITION,y_R2_POSITION);
+
+    //std::cout << !(is_Near(ShootPos.first,ShootPos.second,sender.x(),sender.y(),false,20)) << " and " << !(*shoot_flag1) << std::endl;
+
+    if(!(is_Near(ShootPos.first,ShootPos.second,sender.x(),sender.y(),false,20)) && !(*r1_pass)){
+        dummy_Positioning(vision,actuator,ShootPos.first,ShootPos.second,isYellow,senderID,50);
+    }else{
+        *r1_pass = true;
+    }
+
+    if(*r1_pass){
+        float desiredOrientation = dummyOrientation(bola.x(), bola.y(),sender.x(),sender.y());
+        float vw = dummyAngularVel(desiredOrientation, sender.orientation());
+        if(abs(desiredOrientation - sender.orientation())> 0.0872665){
+            actuator->sendCommand(isYellow,senderID,0,0,vw);
+        }else{
+            actuator->sendCommand(isYellow,senderID,5,0,0,false,7);
+            if(is_Near(bola.x(),bola.y(),sender.x(),sender.y(),false,(21.5+110))){
+                printf("AA\n");
+                (*r1_pass) = false;
+                (*r1_r2_pass) = true;
+                actuator->sendCommand(isYellow,senderID,0,0,0,false,5);
+            }
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     QCoreApplication a(argc, argv);
 
-    Vision *vision = new Vision("224.0.0.1", 10002);
+    Vision *vision = new Vision("224.5.23.2", 10020);
     Actuator *actuator = new Actuator("127.0.0.1", 20011);
 
     // Desired frequency
     int desiredFrequency = 60;
     int role = 0;
     int r1,r2,r3;
+    bool r1_shoot = false, r1_r2_pass = false;
     std::pair<int,std::pair<int,int>> roboIDs;
 
     while(true) {
@@ -248,21 +360,19 @@ int main(int argc, char *argv[]) {
         // Process vision and actuator commands//
         vision->processNetworkDatagrams();
 
-        SSL_DetectionBall bola = vision->getLastBallDetection();
-        //std::cout << "animal" << std::endl;
-
+        //Conseguindo as funções dos robos
         if(role != 2){
-            //printf("A\n");
             roboIDs = get_Dummy_role(vision,true,1,2,3);
             r1 = roboIDs.first;
             r2 = roboIDs.second.first;
             r3 = roboIDs.second.second;
-            //printf("%d %d %d\n", r1,r2,r3);
             role++;
         }
 
-
-
+        if(role==2){
+            pass_Ball(vision,actuator,true,r1,r2,&r1_shoot, &r1_r2_pass);
+            dummy_Positioning(vision,actuator, X_R2_POSITION, y_R2_POSITION ,true,r2,150);
+        }
         // TimePoint//
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
 
