@@ -6,11 +6,15 @@
 #include <modules/vision/vision.h>
 
 #define ANGULAR_V 6
+#define XY_VEL 1.5
 #define TOLERABLE_DISTANCE 7.5
 #define DIST_SHOT 750
+#define BALL_RADIUS 21.5
+#define ROBOT_RADIUS 110
 #define X_R2_POSITION -1500
 #define y_R2_POSITION 0
 
+//Posicionamento
 int calculateQuadrant(float bx, float by, float rx, float ry){
     int quad=0;
     if((bx>rx)&&(by>ry)){//Primeiro Quadrante
@@ -97,7 +101,7 @@ float is_Near(float x_goal, float y_goal, float x, float y, bool getDistance = f
     }
 }
 
-std::pair<float,float> shooting_Position(float bx, float by, float rx, float ry){
+std::pair<float,float> shooting_Position(float bx, float by, float rx, float ry, bool pass = false){
     std::pair<float,float> shooting_Pos;
     shooting_Pos.first=shooting_Pos.second=0;
 
@@ -110,12 +114,13 @@ std::pair<float,float> shooting_Position(float bx, float by, float rx, float ry)
     float desiredOrientation = dummyOrientation(bx, by, rx, ry);
 
     //invertendo
-    if(desiredOrientation>0){
-        desiredOrientation -= M_PI;
-    }else{
-        desiredOrientation += M_PI;
+    if(!pass){
+        if(desiredOrientation>0){
+            desiredOrientation -= M_PI;
+        }else{
+            desiredOrientation += M_PI;
+        }
     }
-
 
     //Checando se está em algum dos eixos
     if((desiredOrientation < 0.0872665) && (desiredOrientation > -0.0872665)){ //Direita
@@ -161,41 +166,120 @@ std::pair<float,float> shooting_Position(float bx, float by, float rx, float ry)
     return shooting_Pos;
 }
 
+std::pair<float,float> receiving_Positon(Vision *vision, float bx, float by, float distance_to_ball){
+    SSL_DetectionBall bola;
+    bola = vision->getLastBallDetection();
+
+    while((abs(bola.x()-bx) < 10 && abs(bola.y()-by)< 10)){
+        vision->processNetworkDatagrams();
+        bola = vision->getLastBallDetection();
+    }
+    // X negativo: Direita | X positivo: esquerda
+    // Y negativo: Cima | Y positivo: baixo
+
+    qreal tg = 1;
+    float alpha, Orientation;
+
+    if(!((by-bola.y())==0)){
+        tg=(abs(bx-bola.x()))/(abs(by-bola.y()));
+    }
+    alpha = qAtan(tg);// Temos o alpha em radianos
+
+    //std::cout << alpha << std::endl;
+
+    int quad;
+
+    if((bx-bola.x())>0 && (by-bola.y())>0){
+        quad = 3;
+    }else if((bx-bola.x())>0 && (by-bola.y())<0){
+        quad = 2;
+    }else if((bx-bola.x())<0 && (by-bola.y())>0){
+        quad = 4;
+    }else if((bx-bola.x())<0 && (by-bola.y())<0){
+        quad = 1;
+    }
+
+    //std::cout << quad << std::endl;
+
+    switch (quad) {
+    case 1:
+        Orientation = (M_PI_2 - alpha);
+        break;
+    case 2:
+        Orientation = (M_PI_2 + alpha);
+        break;
+    case 3:
+        Orientation = ((-M_PI_2) - alpha);
+        break;
+    case 4:
+        Orientation = ((-M_PI_2) + alpha);
+        break;
+    default:
+        Orientation = M_PI;
+        break;
+    }
+
+    //std::cout << "Bola está indo para: " << Orientation << " radianos." << std::endl;
+
+    std::pair<float,float> receiving_Pos;
+    float x,y;
+
+    y = (distance_to_ball)/(sqrt((tg*tg)+1));
+    x = tg*y;
+
+    if(quad==3){
+        receiving_Pos.first = bx - x;
+        receiving_Pos.second = by - y;
+    }else if(quad==4){
+        receiving_Pos.first = bx + x;
+        receiving_Pos.second = by - y;
+    }else if(quad==1){
+        receiving_Pos.first = bx + x;
+        receiving_Pos.second = by + y;
+    }else if (quad==2){
+        receiving_Pos.first = bx - x;
+        receiving_Pos.second = by + y;
+    }
+
+    return receiving_Pos;
+}
+
+//Velocidades/Robo
 std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyOrientation, int quad){
     float absDiff = abs(desiredOrientation-dummyOrientation);
     std::pair<float,float> v;
     float vx,vy; vx=vy=0;
     if((absDiff <= 1.0472)){// bola está na frente
         //std::cout << "Frente" << std::endl;
-        vx = 1.5; vy=0;
+        vx = XY_VEL; vy=0;
     }else if((absDiff > 1.0472)&&(absDiff < 2.0944)){// bola está nas laterais
         if(quad == 2 || quad == 3){//Esquerda
             if(dummyOrientation>0){
                 //std::cout << "Esquerda" << std::endl;
-                vy = 1.5;
+                vy = XY_VEL;
             }else{
                 //std::cout << "Direita" << std::endl;
-                vy = -1.5;
+                vy = -XY_VEL;
             }
         }else if(quad == 1 || quad == 4){// Direita
             if(dummyOrientation>0){
                 //std::cout << "Direita" << std::endl;
-                vy = -1.5;
+                vy = -XY_VEL;
             }else{
                 //std::cout << "Esquerda" << std::endl;
-                vy = 1.5;
+                vy = XY_VEL;
             }
         }
     }else if(absDiff >= 2.0944){ //Bola atrás
         //std::cout << "Tras" << std::endl;
-        vx = -1.5; vy=0;
+        vx = -XY_VEL; vy=0;
     }
     v.first=vx;
     v.second=vy;
     return v;
 }
 
-float dummyAngularVel(float desiredOrientation, float dummy_orientation){
+float dummyAngularVel(float desiredOrientation, float dummy_orientation, float pass = false){
     float vw;
 
     if(abs(desiredOrientation - dummy_orientation)< 0.0872665){
@@ -231,7 +315,9 @@ float dummyAngularVel(float desiredOrientation, float dummy_orientation){
     }
 
     if(abs(desiredOrientation - dummy_orientation)>=0.0872665 && abs(desiredOrientation - dummy_orientation)<=0.349066){
-            vw /= 6;
+        vw /= 6;
+    }else if(pass){
+        vw *=1.5;
     }
 
     return vw;
@@ -329,13 +415,48 @@ void pass_Ball (Vision *vision, Actuator *actuator, bool isYellow, int senderID,
         if(abs(desiredOrientation - sender.orientation())> 0.0872665){
             actuator->sendCommand(isYellow,senderID,0,0,vw);
         }else{
-            actuator->sendCommand(isYellow,senderID,5,0,0,false,7);
-            if(is_Near(bola.x(),bola.y(),sender.x(),sender.y(),false,(21.5+110))){
-                printf("AA\n");
+            actuator->sendCommand(isYellow,senderID,5,0,0,false,3);
+            if(is_Near(bola.x(),bola.y(),sender.x(),sender.y(),false,(BALL_RADIUS+ROBOT_RADIUS))){
                 (*r1_pass) = false;
                 (*r1_r2_pass) = true;
-                actuator->sendCommand(isYellow,senderID,0,0,0,false,5);
+                actuator->sendCommand(isYellow,senderID,0,0,0,false,3);
             }
+        }
+    }
+}
+
+void receive_and_pass(Vision *vision, Actuator *actuator, bool isYellow, int playerID, int receiverID, bool *r1_r2_pass){
+    SSL_DetectionBall bola = vision->getLastBallDetection();
+    SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
+    SSL_DetectionRobot receiver = vision->getLastRobotDetection(isYellow, receiverID);
+
+    float vw,vx,vy;
+    float orientation_to_ball, orientation_to_position;
+    std::pair<float,float> receive_point; //Necessário saber pra onde a bola ta indo
+
+    orientation_to_ball = dummyOrientation(bola.x(),bola.y(),roboVision.x(),roboVision.y());
+    vw = dummyAngularVel(orientation_to_ball,roboVision.orientation(),true); // ficar de frente com a bola
+
+    //Ir pra posição de receber (de acordo com a formação)
+    if(!(*r1_r2_pass)){
+        dummy_Positioning(vision,actuator, X_R2_POSITION, y_R2_POSITION ,true,playerID,150);
+    }else{
+        if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 300))){ // Receber a bola
+            actuator->sendCommand(isYellow,playerID,0,0,vw,true,0);
+        }else if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 800))){ //ir para a bola
+            receive_point = receiving_Positon(vision,bola.x(),bola.y(),375);// Posição para receber a bola
+            orientation_to_position = dummyOrientation(receive_point.first,receive_point.second,roboVision.x(),roboVision.y()); // Orientação para posição
+
+            vx = (cos(orientation_to_position)*(XY_VEL));
+            vy = (sin(orientation_to_position)*(XY_VEL));
+            actuator->sendCommand(isYellow,playerID,vx,vy,vw,true,0);
+        }else if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 1500))){ //Vira para direção da bola     
+            //receive_point = receiving_Positon(vision,bola.x(),bola.y(),750);// Posição para receber a bola
+            //orientation_to_position = dummyOrientation(receive_point.first,receive_point.second,roboVision.x(),roboVision.y()); // Orientação para posição
+
+            //vx = (cos(orientation_to_position)*(XY_VEL*2));
+            //vy = (sin(orientation_to_position)*(XY_VEL*2));
+            actuator->sendCommand(isYellow,playerID,0,0,vw);
         }
     }
 }
@@ -371,8 +492,9 @@ int main(int argc, char *argv[]) {
 
         if(role==2){
             pass_Ball(vision,actuator,true,r1,r2,&r1_shoot, &r1_r2_pass);
-            dummy_Positioning(vision,actuator, X_R2_POSITION, y_R2_POSITION ,true,r2,150);
+            receive_and_pass(vision,actuator,true,r2,r3,&r1_r2_pass);
         }
+
         // TimePoint//
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
 
