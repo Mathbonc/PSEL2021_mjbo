@@ -6,9 +6,9 @@
 #include <modules/vision/vision.h>
 
 #define ANGULAR_V 6
-#define XY_VEL 1.5
+#define XY_VEL 5
 #define TOLERABLE_DISTANCE 7.5
-#define DIST_SHOT 750
+#define DIST_SHOT 800
 #define BALL_RADIUS 21.5
 #define ROBOT_RADIUS 110
 #define X_R2_POSITION -1500
@@ -362,6 +362,7 @@ std::pair<int,std::pair<int,int>> get_Dummy_role(Vision *vision, bool isYellow, 
     return RoboIDs;
 }
 
+
 void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, float y_Position,bool isYellow, int playerID, float tolerance){
     SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
     float desiredOrientation;
@@ -380,13 +381,12 @@ void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, flo
 
     //Enviando
     if(is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),false,tolerance)){
-        actuator->sendCommand(isYellow,playerID,0,0,0,false,4);
+        actuator->sendCommand(isYellow,playerID,0,0,0);
     }else{
-        if(is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),true)>tolerance*2){
-            actuator->sendCommand(isYellow,playerID,v.first,v.second,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
-        }else{
-            actuator->sendCommand(isYellow,playerID,v.first/3,v.second/3,vw,false,4);//X: Frente Y: Esquerda W:Vira esquerda
-        }
+        float x = is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),true);
+        v.first = v.first*(sin(((x/(x+2000))*M_PI_2)));
+        v.second = v.second*(sin((x/(x+2000))*M_PI_2));
+        actuator->sendCommand(isYellow,playerID,v.first,v.second,vw);
     }
 }
 
@@ -403,23 +403,30 @@ void pass_Ball (Vision *vision, Actuator *actuator, bool isYellow, int senderID,
 
     //std::cout << !(is_Near(ShootPos.first,ShootPos.second,sender.x(),sender.y(),false,20)) << " and " << !(*shoot_flag1) << std::endl;
 
-    if(!(is_Near(ShootPos.first,ShootPos.second,sender.x(),sender.y(),false,20)) && !(*r1_pass)){
-        dummy_Positioning(vision,actuator,ShootPos.first,ShootPos.second,isYellow,senderID,50);
+    if(!(is_Near(ShootPos.first,ShootPos.second,sender.x(),sender.y(),false,11)) && !(*r1_pass)){
+        dummy_Positioning(vision,actuator,ShootPos.first,ShootPos.second,isYellow,senderID,10);
     }else{
         *r1_pass = true;
+        actuator->sendCommand(isYellow,senderID,0,0,0);
     }
 
     if(*r1_pass){
         float desiredOrientation = dummyOrientation(bola.x(), bola.y(),sender.x(),sender.y());
         float vw = dummyAngularVel(desiredOrientation, sender.orientation());
+
+        if(is_Near(bola.x(),bola.y(),sender.x(),sender.y(),false,(BALL_RADIUS+ROBOT_RADIUS+50))){
+            desiredOrientation = dummyOrientation(receiver.x(), receiver.y(),sender.x(),sender.y());
+            vw = dummyAngularVel(desiredOrientation, sender.orientation());
+        }
+
         if(abs(desiredOrientation - sender.orientation())> 0.0872665){
             actuator->sendCommand(isYellow,senderID,0,0,vw);
         }else{
-            actuator->sendCommand(isYellow,senderID,5,0,0,false,3);
+            actuator->sendCommand(isYellow,senderID,5,0,vw,false,4);
             if(is_Near(bola.x(),bola.y(),sender.x(),sender.y(),false,(BALL_RADIUS+ROBOT_RADIUS))){
                 (*r1_pass) = false;
                 (*r1_r2_pass) = true;
-                actuator->sendCommand(isYellow,senderID,0,0,0,false,3);
+                actuator->sendCommand(isYellow,senderID,0,0,0,false,4);
             }
         }
     }
@@ -439,23 +446,25 @@ void receive_and_pass(Vision *vision, Actuator *actuator, bool isYellow, int pla
 
     //Ir pra posição de receber (de acordo com a formação)
     if(!(*r1_r2_pass)){
-        dummy_Positioning(vision,actuator, X_R2_POSITION, y_R2_POSITION ,true,playerID,150);
+        dummy_Positioning(vision,actuator, X_R2_POSITION, y_R2_POSITION ,true,playerID,50   );
     }else{
-        if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 300))){ // Receber a bola
+
+        receive_point = receiving_Positon(vision,bola.x(),bola.y(),200);// Posição para receber a bola
+        orientation_to_position = dummyOrientation(receive_point.first,receive_point.second,roboVision.x(),roboVision.y()); // Orientação para posição
+
+        if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 100))){ // Receber a bola
             actuator->sendCommand(isYellow,playerID,0,0,vw,true,0);
         }else if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 800))){ //ir para a bola
-            receive_point = receiving_Positon(vision,bola.x(),bola.y(),375);// Posição para receber a bola
-            orientation_to_position = dummyOrientation(receive_point.first,receive_point.second,roboVision.x(),roboVision.y()); // Orientação para posição
+            if(is_Near(bola.x(),bola.y(),roboVision.x(),roboVision.y(),(ROBOT_RADIUS+300))){
+                vx = (cos(orientation_to_position)*(XY_VEL/4));
+                vy = (sin(orientation_to_position)*(XY_VEL/4));
+            }else{
+                vx = (cos(orientation_to_position)*(XY_VEL*2));
+                vy = (-sin(orientation_to_position)*(XY_VEL*2));
+            }
 
-            vx = (cos(orientation_to_position)*(XY_VEL));
-            vy = (sin(orientation_to_position)*(XY_VEL));
-            actuator->sendCommand(isYellow,playerID,vx,vy,vw,true,0);
-        }else if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 1500))){ //Vira para direção da bola     
-            //receive_point = receiving_Positon(vision,bola.x(),bola.y(),750);// Posição para receber a bola
-            //orientation_to_position = dummyOrientation(receive_point.first,receive_point.second,roboVision.x(),roboVision.y()); // Orientação para posição
-
-            //vx = (cos(orientation_to_position)*(XY_VEL*2));
-            //vy = (sin(orientation_to_position)*(XY_VEL*2));
+            actuator->sendCommand(isYellow,playerID,vx,vy,0,true);
+        }else if(is_Near(roboVision.x(),roboVision.y(),bola.x(),bola.y(),false,(ROBOT_RADIUS + 2500))){ //Vira para direção da bola
             actuator->sendCommand(isYellow,playerID,0,0,vw);
         }
     }
@@ -491,8 +500,9 @@ int main(int argc, char *argv[]) {
         }
 
         if(role==2){
-            pass_Ball(vision,actuator,true,r1,r2,&r1_shoot, &r1_r2_pass);
-            receive_and_pass(vision,actuator,true,r2,r3,&r1_r2_pass);
+            //pass_Ball(vision,actuator,true,r1,r2,&r1_shoot, &r1_r2_pass);
+            //receive_and_pass(vision,actuator,true,r2,r3,&r1_r2_pass);
+            dummy_Positioning(vision,actuator,0,0,true,1,10);
         }
 
         // TimePoint//
