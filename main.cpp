@@ -13,6 +13,11 @@
 #define ROBOT_RADIUS 110
 #define X_R2_POSITION -1500
 #define Y_R2_POSITION 0
+#define X_R3_POSITION -3600
+#define Y_R3_POSITION 1500
+#define X_YELLOW_GOAL 4500
+#define X_BLUE_GOAL -4500
+
 
 //Posicionamento
 int calculateQuadrant(float bx, float by, float rx, float ry){
@@ -229,41 +234,6 @@ std::pair<float,float> receiving_Positon(Vision *vision, float bx, float by, flo
 }
 
 //Velocidades/Robo
-/*
-std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyOrientation, int quad){
-    float absDiff = abs(desiredOrientation-dummyOrientation);
-    std::pair<float,float> v;
-    float vx,vy; vx=vy=0;
-    if((absDiff <= 1.0472)){// bola está na frente
-        //std::cout << "Frente" << std::endl;
-        vx = XY_VEL; vy=0;
-    }else if((absDiff > 1.0472)&&(absDiff < 2.0944)){// bola está nas laterais
-        if(quad == 2 || quad == 3){//Esquerda
-            if(dummyOrientation>0){
-                //std::cout << "Esquerda" << std::endl;
-                vy = XY_VEL;
-            }else{
-                //std::cout << "Direita" << std::endl;
-                vy = -XY_VEL;
-            }
-        }else if(quad == 1 || quad == 4){// Direita
-            if(dummyOrientation>0){
-                //std::cout << "Direita" << std::endl;
-                vy = -XY_VEL;
-            }else{
-                //std::cout << "Esquerda" << std::endl;
-                vy = XY_VEL;
-            }
-        }
-    }else if(absDiff >= 2.0944){ //Bola atrás
-        //std::cout << "Tras" << std::endl;
-        vx = -XY_VEL; vy=0;
-    }
-    v.first=vx;
-    v.second=vy;
-    return v;
-}
-*/
 
 std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyOrientation, float x_goal, float y_goal, float x, float y, bool orientation_fixed = false){
     std::pair<float,float> dummy_Vel;
@@ -273,7 +243,6 @@ std::pair<float,float> dummyVelCalculator(float desiredOrientation, float dummyO
     float v = XY_VEL*(sin(((X/(X+2000))*M_PI_2)));
 
     if(orientation_fixed){
-        int quad = calculateQuadrant(x_goal,y_goal,x,y);
         float alpha = angular_diff(desiredOrientation,dummyOrientation);
         dummy_Vel.first = cos(alpha)*v;
         dummy_Vel.second = sin(alpha)*v;
@@ -412,7 +381,6 @@ void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, flo
     float desiredOrientation;
 
     //Conseguindo as informações de orientação
-    int quad = calculateQuadrant(x_Position,y_Position,roboVision.x(),roboVision.y());
     desiredOrientation = dummyOrientation(x_Position,y_Position,roboVision.x(),roboVision.y());
 
     //Velocidade angular
@@ -427,9 +395,6 @@ void dummy_Positioning(Vision *vision, Actuator *actuator, float x_Position, flo
     if(is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),false,tolerance)){
         actuator->sendCommand(isYellow,playerID,0,0,0);
     }else{
-        //float x = is_Near(x_Position,y_Position,roboVision.x(),roboVision.y(),true);
-        //v.first = v.first*(sin(((x/(x+2000))*M_PI_2)));
-        //v.second = v.second*(sin((x/(x+2000))*M_PI_2));
         actuator->sendCommand(isYellow,playerID,v.first,v.second,vw);
     }
 }
@@ -476,7 +441,7 @@ void pass_Ball (Vision *vision, Actuator *actuator, bool isYellow, int senderID,
     }
 }
 
-void receive_and_pass(Vision *vision, Actuator *actuator, bool isYellow, int playerID, int receiverID, bool *r1_r2_pass, bool *r2_r3_pass){
+void receive_and_pass(Vision *vision, Actuator *actuator, bool isYellow, int playerID, int receiverID, float X_formation, float Y_formation,bool *receiving, bool *shooting, bool shoot_to_goal = false){
     SSL_DetectionBall bola = vision->getLastBallDetection();
     SSL_DetectionRobot roboVision = vision->getLastRobotDetection(isYellow, playerID);
     SSL_DetectionRobot receiver = vision->getLastRobotDetection(isYellow, receiverID);
@@ -489,19 +454,29 @@ void receive_and_pass(Vision *vision, Actuator *actuator, bool isYellow, int pla
     vw = dummyAngularVel(orientation_to_ball,roboVision.orientation()); // ficar de frente com a bola
 
     //Ir pra posição de receber (de acordo com a formação)
-    if(!(*r1_r2_pass)){
-        dummy_Positioning(vision,actuator, X_R2_POSITION, Y_R2_POSITION ,true,playerID,25);
-        if(is_Near(X_R2_POSITION,Y_R2_POSITION,roboVision.x(),roboVision.y(),false,30)){
+    if(!(*receiving)){
+        dummy_Positioning(vision,actuator, X_formation, Y_formation ,true,playerID,25);
+        if(is_Near(X_formation,Y_formation,roboVision.x(),roboVision.y(),false,30)){
             actuator->sendCommand(isYellow,playerID,0,0,vw); // ficar olhando pra bola
         }
-    }else if(!*(r2_r3_pass)){
+    }else if(!*(shooting)){
         if(is_Near(bola.x(),bola.y(),roboVision.x(),roboVision.y(),true) < (ROBOT_RADIUS+BALL_RADIUS+5)){//Receber a bola
-            orientation_to_position = dummyOrientation(receiver.x(),receiver.y(),roboVision.x(),roboVision.y());
-            vw = dummyAngularVel(orientation_to_position,roboVision.orientation());
-            actuator->sendCommand(isYellow,playerID,0,0,vw,true);
-            if(abs(orientation_to_position-roboVision.orientation())< 0.0349066){
-                actuator->sendCommand(isYellow,playerID,0,0,vw,true,7);
-                *(r2_r3_pass) = true;
+            if(shoot_to_goal){
+                orientation_to_position = dummyOrientation(X_BLUE_GOAL,0,roboVision.x(),roboVision.y());
+                vw = dummyAngularVel(orientation_to_position,roboVision.orientation());
+                actuator->sendCommand(isYellow,playerID,0,0,vw,true);
+                if(abs(orientation_to_position-roboVision.orientation())< 0.0349066){
+                    actuator->sendCommand(isYellow,playerID,0,0,vw,true,7);
+                    *(shooting) = true;
+                }
+            }else{
+                orientation_to_position = dummyOrientation(receiver.x(),receiver.y(),roboVision.x(),roboVision.y());
+                vw = dummyAngularVel(orientation_to_position,roboVision.orientation());
+                actuator->sendCommand(isYellow,playerID,0,0,vw,true);
+                if(abs(orientation_to_position-roboVision.orientation())< 0.0349066){
+                    actuator->sendCommand(isYellow,playerID,0,0,vw,true,7);
+                    *(shooting) = true;
+                }
             }
         }else if(is_Near(bola.x(),bola.y(),roboVision.x(),roboVision.y(),true) <= 300){ //buscar a bola
             std::pair<float,float> v = dummyVelCalculator(orientation_to_ball,roboVision.orientation(),bola.x(),bola.y(),roboVision.x(),roboVision.y());
@@ -529,7 +504,7 @@ int main(int argc, char *argv[]) {
     int desiredFrequency = 60;
     int role = 0;
     int r1,r2,r3;
-    bool r1_shoot = false, r1_r2_pass = false, r2_r3_pass;
+    bool r1_shoot = false, r1_r2_pass = false, r2_r3_pass = false, r3_shoot = false;
     std::pair<int,std::pair<int,int>> roboIDs;
 
     while(true) {
@@ -550,8 +525,8 @@ int main(int argc, char *argv[]) {
 
         if(role==2){
             pass_Ball(vision,actuator,true,r1,r2,&r1_shoot, &r1_r2_pass);
-            receive_and_pass(vision,actuator,true,r2,r3,&r1_r2_pass, &r2_r3_pass);
-            dummy_Positioning(vision,actuator,-4300,2300,true,r3,10);
+            receive_and_pass(vision,actuator,true,r2,r3,X_R2_POSITION,Y_R2_POSITION,&r1_r2_pass, &r2_r3_pass);
+            receive_and_pass(vision,actuator,true,r3,1,X_R3_POSITION,Y_R3_POSITION,&r2_r3_pass, &r3_shoot,true);
             /*
             SSL_DetectionRobot robo = vision->getLastRobotDetection(true,1);
             SSL_DetectionBall bola = vision->getLastBallDetection();
