@@ -246,23 +246,28 @@ std::pair<double,double> VSSS_Velocity(float desiredOrientation, float robotOrie
 
     //Calcular velociade angular
     vw = VSSS_Angular_Velocity(desiredOrientation,robotOrientation);
-    //Calcular veloidade linear
+    //Calcular velocidade linear
     float V = VSSS_ST8_VEL*(sin(((distance/(distance+0.650))*M_PI_2)));
+
     if(rotate_Only){
         V=0;
     }
-    //Decidir os limites para cada um
+
+    if(abs(desiredOrientation-robotOrientation)>M_PI_2){//3 point turn
+        V = -V; //Sempre dar ré
+    }
+
     v.first = ((2*V)-(L*vw))/(2*r);
     v.second = ((2*V)+(L*vw))/(2*r);
 
-    //std::cout << "ANGULAR: " << distance << std::endl;
-    std::cout << "LINEAR 1: " << v.first << std::endl;
-    std::cout << "LINEAR 2: " << v.second << std::endl;
+    //std::cout << "ANGULAR: " << vw << std::endl;
+    //std::cout << "LINEAR 1: " << v.first << std::endl;
+    //std::cout << "LINEAR 2: " << v.second << std::endl;
 
     return v;
 }
 
-void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int playerID, float x_position, float y_position, float tolerance = 0.01){
+void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int playerID, float x_position, float y_position, bool rotate_Only = false, float tolerance = 0.01){
     fira_message::Robot roboVision = vision->getLastRobotDetection(isYellow, playerID);
 
     std::pair<double,double> v;
@@ -270,7 +275,7 @@ void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int pla
 
     desiredOrientation = Orientation(x_position,y_position,roboVision.x(),roboVision.y());
 
-    if(is_Near(x_position,y_position,roboVision.x(),roboVision.y(),false,tolerance)){
+    if(is_Near(x_position,y_position,roboVision.x(),roboVision.y(),false,tolerance) || rotate_Only){
         if(abs(desiredOrientation - roboVision.orientation())<= 0.0872665){
             actuator->sendCommand(isYellow,playerID,0,0);
         }else{
@@ -318,7 +323,8 @@ int main(int argc, char *argv[]) {
         // Process vision and actuator commands
         vision->processNetworkDatagrams();
 
-        VSSS_positioning(vision,actuator,true,0,0,0);
+        fira_message::Ball bola = vision->getLastBallDetection();
+        VSSS_positioning(vision,actuator,true,0,bola.x(),bola.y());
 
         // TimePoint
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
