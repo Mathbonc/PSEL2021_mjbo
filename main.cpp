@@ -319,24 +319,26 @@ void VSSS_positioning(Vision *vision, Actuator *actuator, bool isYellow, int pla
 }
 
 void shoot_Ball(Vision *vision, Actuator *actuator, bool isYellow, int playerID, bool *Shot){
-
     fira_message::Ball bola = vision->getLastBallDetection();
     fira_message::Robot roboVision = vision->getLastRobotDetection(isYellow,playerID);
 
+    std::pair<float,float> v;
+    float vw,robotOrientation;
     float desiredOrientation = Orientation(bola.x(),bola.y(),roboVision.x(),roboVision.y());
 
-    double abs_DO = abs(desiredOrientation);
-    double abs_RO = abs(roboVision.orientation());
+    if(abs(desiredOrientation-roboVision.orientation()) > (M_PI_2)){ //A bola está atrás do robo
+        robotOrientation = invert_Orientation(roboVision.orientation());
+    }else{
+        robotOrientation = roboVision.orientation();
+    }
 
-    std::pair<float,float> v;
-    float vw;
 
-    vw = VSSS_Angular_Velocity(desiredOrientation,roboVision.orientation());
+    vw = VSSS_Angular_Velocity(desiredOrientation,robotOrientation);
 
     v.first = (-(0.075*vw))/(2*0.0325);
     v.second = ((0.075*vw))/(2*0.0325);
 
-    if(abs(abs_DO-abs_RO)>0.0523599){
+    if(abs(desiredOrientation - robotOrientation) > 0.0523599){
         actuator->sendCommand(isYellow,playerID,v.first,v.second);
     }else{
         float b_vx,b_vy;
@@ -352,15 +354,13 @@ void shoot_Ball(Vision *vision, Actuator *actuator, bool isYellow, int playerID,
 
             if(b_vx > 0.05 || b_vy > 0.05){
                 *(Shot)=true;
-            }else{
-                actuator->sendCommand(isYellow,playerID,200,200);
-                //if(abs(desiredOrientation-roboVision.orientation())<0.0523599){
-
-                //}
-                /*else{
-                    actuator->sendCommand(isYellow,playerID,-200,-200);
+            }else{              
+                if(abs(desiredOrientation-roboVision.orientation())<0.0523599){
+                    actuator->sendCommand(isYellow,playerID,200,200);
                 }
-                */
+                else{
+                    actuator->sendCommand(isYellow,playerID,-200,-200);
+                }             
             }
         }
     }
@@ -389,18 +389,12 @@ void shoot_to(Vision *vision, Actuator *actuator,  bool isYellow, int playerID, 
     }
 }
 
-std::pair<float,float> keeper_Velocity(Vision *vision, bool isYellow, int playerID,float x_position, float y_position){
+std::pair<float,float> keeper_Velocity(Vision *vision, bool isYellow, int playerID, float x_position, float y_position, float bv){
     fira_message::Ball bola = vision->getLastBallDetection();
     fira_message::Robot robo = vision->getLastRobotDetection(isYellow,playerID);
     float desiredOrientation;
     float vx,vy,vw,robotOrientation = 0;
     std::pair<float,float> v;
-
-    if(abs(desiredOrientation-robotOrientation) > (M_PI_2)){ //A bola está atrás do robo
-        robotOrientation = invert_Orientation(robo.orientation());
-    }else{
-        robotOrientation = robo.orientation();
-    }
 
     if(is_Near(bola.x(),bola.y(),robo.x(),robo.y(),false,0.1)){ // Bola próxima, o alvo se torna bola;
         desiredOrientation = Orientation(bola.x(),bola.y(),robo.x(),robo.y());
@@ -408,13 +402,19 @@ std::pair<float,float> keeper_Velocity(Vision *vision, bool isYellow, int player
         desiredOrientation = Orientation(x_position,y_position,robo.x(),robo.y());
     }
 
-    vw = 2*VSSS_Angular_Velocity(desiredOrientation,robotOrientation);
+    if(abs(desiredOrientation-robo.orientation()) > (M_PI_2)){ //A bola está atrás do robo
+        robotOrientation = invert_Orientation(robo.orientation());
+    }else{
+        robotOrientation = robo.orientation();
+    }
+
+    vw = 3*VSSS_Angular_Velocity(desiredOrientation,robotOrientation);
 
     vx = (-(0.075*vw))/(2*0.0325);
     vy= ((0.075*vw))/(2*0.0325);
 
     if(isYellow){
-        if(bola.x()> YELLOW_FIELD_2/1.5){//rotaciona pra posição
+        if(bola.x()> YELLOW_FIELD_2/2 && bv < 0.4){//rotaciona pra posição
             v.first = vx;
             v.second = vy;
             if(abs(abs(desiredOrientation) - abs(robotOrientation))>0.0872665){
@@ -423,7 +423,7 @@ std::pair<float,float> keeper_Velocity(Vision *vision, bool isYellow, int player
                 return std::make_pair(0,0);
             }
         }else{ //Vai pra posição de interceptação
-            v = VSSS_Velocity(desiredOrientation,robotOrientation,is_Near(x_position,y_position,robo.x(),robo.y(),true),3);
+            v = VSSS_Velocity(desiredOrientation,robo.orientation(),is_Near(x_position,y_position,robo.x(),robo.y(),true),3);
             if(is_Near(bola.x(),bola.y(),robo.x(),robo.y())){
                 return std::make_pair(0,0);
             }else{
@@ -431,7 +431,7 @@ std::pair<float,float> keeper_Velocity(Vision *vision, bool isYellow, int player
             }
         }
     }else{
-        if(bola.x() < BLUE_FIELD_2 / 1.5){//rotaciona pra posição
+        if(bola.x() < BLUE_FIELD_2/2 && bv < 0.4){//rotaciona pra posição
             v.first = vx;
             v.second = vy;
             if(abs(abs(desiredOrientation) - abs(robotOrientation))>0.0872665){
@@ -440,7 +440,7 @@ std::pair<float,float> keeper_Velocity(Vision *vision, bool isYellow, int player
                 return std::make_pair(0,0);
             }
         }else{//Vai pra posição de interceptação
-            v = VSSS_Velocity(desiredOrientation,robotOrientation,is_Near(x_position,y_position,robo.x(),robo.y(),true),3);
+            v = VSSS_Velocity(desiredOrientation,robo.orientation(),is_Near(x_position,y_position,robo.x(),robo.y(),true),3);
             if(is_Near(x_position,y_position,robo.x(),robo.y())){
                 return std::make_pair(0,0);
             }else{
@@ -455,28 +455,29 @@ void keeper(Vision *vision, Actuator *actuator, bool isYellow, int playerID){
     fira_message::Robot roboVision = vision->getLastRobotDetection(isYellow,playerID);
 
     std::pair<float,float> receiving_Pos,v;
+    float bv = sqrt(bola.vx()*bola.vx() + bola.vy()*bola.vy());
 
     if(isYellow){
-        if(bola.x() > 0){ // Fica na posição de goleiro
+        if(bola.x() > 0 && bv < 0.4){ // Fica na posição de goleiro
             VSSS_positioning(vision,actuator,isYellow,playerID,X_YELLOW_KEEPER,0);
         }else{
             receiving_Pos = ball_Predictor(vision,isYellow);
-            if(is_Near(bola.x(),bola.y(),roboVision.x(),roboVision.y(),false,0.001)){ // Se a bola estiver perto, ficar parado
+            if(is_Near(bola.x(),bola.y(),roboVision.x(),roboVision.y(),false,0.005)){ // Se a bola estiver perto, ficar parado
                 actuator->sendCommand(isYellow,playerID,0,0);
             }else{
-                v=keeper_Velocity(vision,isYellow,playerID,receiving_Pos.first,receiving_Pos.second);
+                v=keeper_Velocity(vision,isYellow,playerID,receiving_Pos.first,receiving_Pos.second,bv);
                 actuator->sendCommand(isYellow,playerID,v.first,v.second);
             }
         }
     }else{
-        if(bola.x() < 0){ // Fica na posição de goleiro
+        if(bola.x() < 0 && bv < 0.4){ // Fica na posição de goleiro
             VSSS_positioning(vision,actuator,isYellow,playerID,X_BLUE_KEEPER,0);
         }else{
             receiving_Pos = ball_Predictor(vision,isYellow);
-            if(is_Near(bola.x(),bola.y(),roboVision.x(),roboVision.y(),false,0.001)){ // Se a bola estiver perto, ficar parado
+            if(is_Near(bola.x(),bola.y(),roboVision.x(),roboVision.y(),false,0.005)){ // Se a bola estiver perto, ficar parado
                 actuator->sendCommand(isYellow,playerID,0,0);
             }else{
-                v=keeper_Velocity(vision,isYellow,playerID,receiving_Pos.first,receiving_Pos.second);
+                v=keeper_Velocity(vision,isYellow,playerID,receiving_Pos.first,receiving_Pos.second,bv);
                 actuator->sendCommand(isYellow,playerID,v.first,v.second);
             }
         }
@@ -500,10 +501,9 @@ int main(int argc, char *argv[]) {
         vision->processNetworkDatagrams();
 
         fira_message::Ball bola = vision->getLastBallDetection();
-        shoot_to(vision,actuator,false,0,X_GOAL_BLUE,0.5,&Shot);
-        keeper(vision,actuator,true,0);
-        //VSSS_positioning(vision,actuator,true,0,bola.x(),bola.y(),3);
 
+        shoot_to(vision,actuator,false,0,X_GOAL_BLUE,0.19,&Shot);
+        keeper(vision,actuator,true,0);
 
         // TimePoint
         std::chrono::high_resolution_clock::time_point afterProcess = std::chrono::high_resolution_clock::now();
